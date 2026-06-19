@@ -143,3 +143,5 @@ vite.config.ts.timestamp-*
 .vite/
 
 demand-forecasting-mvp-plan.md
+__pycache__/
+*.pyc
