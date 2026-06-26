@@ -80,3 +80,19 @@ def test_parse_uploaded_csv_rejects_empty_csv() -> None:
 
     assert exc_info.value.status_code == status.HTTP_400_BAD_REQUEST
     assert exc_info.value.detail == "CSV file could not be parsed."
+
+
+def test_parse_uploaded_csv_rejects_missing_required_columns() -> None:
+    upload = make_upload(
+        b"date,product_id,price\n"
+        b"2026-01-01,SKU-1,12.50\n"
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(parse_uploaded_csv(upload))
+
+    assert exc_info.value.status_code == status.HTTP_400_BAD_REQUEST
+    assert (
+        exc_info.value.detail
+        == "CSV file is missing required columns: quantity_sold."
+    )

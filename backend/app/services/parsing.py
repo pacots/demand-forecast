@@ -5,6 +5,7 @@ import pandas as pd
 
 
 MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024
+REQUIRED_COLUMNS = ("date", "product_id", "quantity_sold")
 
 
 async def read_uploaded_csv(upload: UploadFile) -> BytesIO:
@@ -31,9 +32,28 @@ async def parse_uploaded_csv(upload: UploadFile) -> pd.DataFrame:
 
     csv_buffer = await read_uploaded_csv(upload)
     try:
-        return pd.read_csv(csv_buffer)
+        dataframe = pd.read_csv(csv_buffer)
     except (pd.errors.EmptyDataError, pd.errors.ParserError) as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="CSV file could not be parsed.",
         ) from exc
+
+    validate_required_columns(dataframe)
+    return dataframe
+
+
+def validate_required_columns(dataframe: pd.DataFrame) -> None:
+    """Ensure the CSV includes every column required for forecasting."""
+
+    missing_columns = [
+        column for column in REQUIRED_COLUMNS if column not in dataframe.columns
+    ]
+    if missing_columns:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "CSV file is missing required columns: "
+                f"{', '.join(missing_columns)}."
+            ),
+        )
