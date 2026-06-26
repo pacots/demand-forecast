@@ -1,4 +1,5 @@
-from datetime import datetime
+from dataclasses import dataclass
+from datetime import date, datetime
 from io import BytesIO
 import math
 import re
@@ -15,6 +16,19 @@ ACCEPTED_DATE_FORMATS = (
     (r"\d{4}/\d{2}/\d{2}", "%Y/%m/%d"),
     (r"\d{2}/\d{2}/\d{4}", "%m/%d/%Y"),
 )
+
+
+@dataclass(frozen=True)
+class ParsingSummary:
+    row_count: int
+    product_count: int
+    date_range: tuple[date | None, date | None]
+
+
+@dataclass(frozen=True)
+class ParsedCsv:
+    dataframe: pd.DataFrame
+    summary: ParsingSummary
 
 
 async def read_uploaded_csv(upload: UploadFile) -> BytesIO:
@@ -36,8 +50,8 @@ async def read_uploaded_csv(upload: UploadFile) -> BytesIO:
     return BytesIO(contents)
 
 
-async def parse_uploaded_csv(upload: UploadFile) -> pd.DataFrame:
-    """Parse an uploaded CSV into a pandas DataFrame without touching disk."""
+async def parse_uploaded_csv(upload: UploadFile) -> ParsedCsv:
+    """Parse and clean an uploaded CSV, returning data plus a summary."""
 
     csv_buffer = await read_uploaded_csv(upload)
     try:
@@ -52,7 +66,7 @@ async def parse_uploaded_csv(upload: UploadFile) -> pd.DataFrame:
     parse_date_column(dataframe)
     dataframe = filter_invalid_quantity_rows(dataframe)
     dataframe = remove_duplicate_rows(dataframe)
-    return dataframe
+    return ParsedCsv(dataframe=dataframe, summary=build_parsing_summary(dataframe))
 
 
 def validate_required_columns(dataframe: pd.DataFrame) -> None:
@@ -129,3 +143,21 @@ def remove_duplicate_rows(dataframe: pd.DataFrame) -> pd.DataFrame:
         subset=["product_id", "date"],
         keep="first",
     ).reset_index(drop=True)
+
+
+def build_parsing_summary(dataframe: pd.DataFrame) -> ParsingSummary:
+    """Summarize the cleaned CSV for downstream forecasting steps."""
+
+    if dataframe.empty:
+        date_range = (None, None)
+    else:
+        date_range = (
+            dataframe["date"].min().date(),
+            dataframe["date"].max().date(),
+        )
+
+    return ParsingSummary(
+        row_count=int(len(dataframe)),
+        product_count=int(dataframe["product_id"].nunique()),
+        date_range=date_range,
+    )

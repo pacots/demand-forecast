@@ -1,4 +1,5 @@
 import asyncio
+from datetime import date
 from io import BytesIO
 
 from fastapi import HTTPException, UploadFile, status
@@ -49,16 +50,20 @@ def test_read_uploaded_csv_rejects_non_csv_file(filename: str) -> None:
     assert exc_info.value.detail == "Only CSV files are accepted."
 
 
-def test_parse_uploaded_csv_returns_dataframe() -> None:
+def test_parse_uploaded_csv_returns_cleaned_dataframe_and_summary() -> None:
     upload = make_upload(
         b"date,product_id,quantity_sold,price\n"
         b"2026-01-01,SKU-1,5,12.50\n"
         b"2026-01-02,SKU-2,7,9.99\n"
     )
 
-    result = asyncio.run(parse_uploaded_csv(upload))
+    parsed = asyncio.run(parse_uploaded_csv(upload))
+    result = parsed.dataframe
 
     assert list(result.columns) == ["date", "product_id", "quantity_sold", "price"]
+    assert parsed.summary.row_count == 2
+    assert parsed.summary.product_count == 2
+    assert parsed.summary.date_range == (date(2026, 1, 1), date(2026, 1, 2))
     assert pd.api.types.is_datetime64_any_dtype(result["date"])
     assert result["date"].dt.strftime("%Y-%m-%d").tolist() == [
         "2026-01-01",
@@ -111,7 +116,7 @@ def test_parse_uploaded_csv_accepts_supported_date_formats() -> None:
         b"01/02/2026,SKU-1,7\n"
     )
 
-    result = asyncio.run(parse_uploaded_csv(upload))
+    result = asyncio.run(parse_uploaded_csv(upload)).dataframe
 
     assert result["date"].dt.strftime("%Y-%m-%d").tolist() == [
         "2026-01-01",
@@ -147,7 +152,7 @@ def test_parse_uploaded_csv_removes_duplicate_product_date_rows() -> None:
         b"2026-01-02,SKU-1,7\n"
     )
 
-    result = asyncio.run(parse_uploaded_csv(upload))
+    result = asyncio.run(parse_uploaded_csv(upload)).dataframe
 
     assert result.index.tolist() == [0, 1, 2]
     assert result["date"].dt.strftime("%Y-%m-%d").tolist() == [
@@ -173,12 +178,16 @@ def test_parse_uploaded_csv_filters_invalid_quantity_rows() -> None:
         b"2026-01-06,SKU-6,0\n"
     )
 
-    result = asyncio.run(parse_uploaded_csv(upload))
+    parsed = asyncio.run(parse_uploaded_csv(upload))
+    result = parsed.dataframe
 
     assert result[["product_id", "quantity_sold"]].to_dict("records") == [
         {"product_id": "SKU-1", "quantity_sold": 5.5},
         {"product_id": "SKU-6", "quantity_sold": 0.0},
     ]
+    assert parsed.summary.row_count == 2
+    assert parsed.summary.product_count == 2
+    assert parsed.summary.date_range == (date(2026, 1, 1), date(2026, 1, 6))
     assert result["date"].dt.strftime("%Y-%m-%d").tolist() == [
         "2026-01-01",
         "2026-01-06",
@@ -192,7 +201,7 @@ def test_parse_uploaded_csv_filters_invalid_rows_before_deduplicating() -> None:
         b"2026/01/01,SKU-1,6\n"
     )
 
-    result = asyncio.run(parse_uploaded_csv(upload))
+    result = asyncio.run(parse_uploaded_csv(upload)).dataframe
 
     assert result[["product_id", "quantity_sold"]].to_dict("records") == [
         {"product_id": "SKU-1", "quantity_sold": 6}
