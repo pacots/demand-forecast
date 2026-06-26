@@ -1,9 +1,31 @@
+from dataclasses import dataclass
+
 import pandas as pd
 
 
+MIN_HISTORY_WEEKS = 8
 WEEKLY_FREQUENCY = "7D"
 WEEK_START_COLUMN = "week_start"
 AGGREGATED_COLUMNS = ["product_id", WEEK_START_COLUMN, "quantity_sold"]
+
+
+@dataclass(frozen=True)
+class WeeklyAggregation:
+    dataframe: pd.DataFrame
+    excluded_products: list[str]
+
+
+def aggregate_weekly_sales(cleaned_data: pd.DataFrame) -> WeeklyAggregation:
+    """Return forecastable weekly sales and products excluded for short history."""
+
+    weekly_sales = resample_weekly_sales(cleaned_data)
+    forecastable_sales, excluded_products = exclude_short_history_products(
+        weekly_sales
+    )
+    return WeeklyAggregation(
+        dataframe=forecastable_sales,
+        excluded_products=excluded_products,
+    )
 
 
 def resample_weekly_sales(cleaned_data: pd.DataFrame) -> pd.DataFrame:
@@ -50,3 +72,23 @@ def fill_missing_weekly_buckets(weekly_sales: pd.DataFrame) -> pd.DataFrame:
         product_frames.append(completed_sales[AGGREGATED_COLUMNS])
 
     return pd.concat(product_frames, ignore_index=True)
+
+
+def exclude_short_history_products(
+    weekly_sales: pd.DataFrame,
+) -> tuple[pd.DataFrame, list[str]]:
+    """Split weekly sales into forecastable rows and excluded product names."""
+
+    if weekly_sales.empty:
+        return weekly_sales.copy(), []
+
+    history_lengths = weekly_sales.groupby("product_id").size()
+    excluded_products = sorted(
+        history_lengths[history_lengths < MIN_HISTORY_WEEKS].index.tolist()
+    )
+
+    forecastable_sales = weekly_sales[
+        ~weekly_sales["product_id"].isin(excluded_products)
+    ].reset_index(drop=True)
+
+    return forecastable_sales, excluded_products
